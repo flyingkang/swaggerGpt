@@ -24,6 +24,7 @@
 
 <script>
 import tracker from '@/analytics/tracker';
+import { buildAnalyticsContext } from '@/analytics/context';
 import { EVENTS } from '@/analytics/config';
 import {
   observeBannerExposure,
@@ -46,26 +47,20 @@ export default {
     };
   },
   async onLoad(options) {
-    const systemInfo = uni.getSystemInfoSync();
-    const analyticsOptions = this.normalizeAnalyticsOptions(options);
-    const networkType = await this.fetchNetworkType();
+    let systemInfo = {};
+    try {
+      systemInfo = uni.getSystemInfoSync();
+    } catch (error) {
+      console.warn('getSystemInfoSync failed', error);
+    }
 
-    tracker.updateContext({
-      user_id: analyticsOptions.userId,
-      page_url: analyticsOptions.pageUrl,
-      platform: analyticsOptions.platform,
-      language: systemInfo.language,
-      version_language: analyticsOptions.versionLanguage,
-      country: analyticsOptions.country,
-      os: systemInfo.platform,
-      device_model: systemInfo.model,
-      network_type: networkType,
-      app_version: analyticsOptions.appVersion,
-      is_member: analyticsOptions.isMember,
-      free_play_duration: analyticsOptions.freePlayDuration,
-      entry_source: analyticsOptions.entrySource,
-      watch_state: analyticsOptions.watchState,
+    const analyticsOptions = await buildAnalyticsContext(options, {
+      systemInfo,
+      existingContext: tracker.getContext(),
+      currentUrl: typeof window !== 'undefined' ? window.location.href : '',
     });
+
+    tracker.updateContext(analyticsOptions);
 
     this.hasReportedStayDuration = false;
     this.startTime = Date.now();
