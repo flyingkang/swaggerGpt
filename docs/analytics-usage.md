@@ -20,18 +20,6 @@ While the page is visible, the component tracks the following key events:
   100% of the content height.
 - `page_banner_click` — emitted when a banner is tapped.
 - `page_game_click` — emitted when a game card is tapped.
-- `banner_impression` — emitted once when a banner is at least 50% visible in the viewport.
-- `topic_impression` — emitted once when a topic module becomes visible (requires elements with the `.topic-item` selector).
-
-### Impression instrumentation
-
-Banner containers must expose a `data-banner-id` attribute so that
-`banner_impression` events include the `page_banner_id` dimension.
-Topic modules should use the `.topic-item` selector and provide a
-`data-topic-id` attribute. The component automatically wires
-intersection observers for these selectors and sends each impression only
-once per foreground session, always including the current `page_name` in
-the payload.
 
 ## Providing context parameters
 
