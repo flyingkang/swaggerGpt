@@ -1,6 +1,12 @@
 <template>
   <view class="page-index" @scroll="handleScroll">
-    <view class="banner" v-for="banner in banners" :key="banner.id" @tap="onBannerClick(banner.id)">
+    <view
+      class="banner"
+      v-for="banner in banners"
+      :key="banner.id"
+      :data-banner-id="banner.id"
+      @tap="onBannerClick(banner.id)"
+    >
       <image :src="banner.image" mode="aspectFill" />
     </view>
     <view
@@ -19,7 +25,12 @@
 <script>
 import tracker from '@/analytics/tracker';
 import { EVENTS } from '@/analytics/config';
-import { observeGameExposure, resetExposureCache } from '@/analytics/exposure';
+import {
+  observeBannerExposure,
+  observeGameExposure,
+  observeTopicExposure,
+  resetExposureCache,
+} from '@/analytics/exposure';
 
 export default {
   data() {
@@ -27,7 +38,9 @@ export default {
       startTime: 0,
       banners: [],
       games: [],
-      observer: null,
+      gameObserver: null,
+      bannerObserver: null,
+      topicObserver: null,
       scrollDepth: 0,
       hasReportedStayDuration: false,
     };
@@ -58,11 +71,23 @@ export default {
     this.startTime = Date.now();
   },
   onReady() {
-    this.observer = observeGameExposure({
+    this.gameObserver = observeGameExposure({
       vm: this,
       selector: '.game-item',
       pageName: '1',
       section: '游戏推荐',
+    });
+
+    this.bannerObserver = observeBannerExposure({
+      vm: this,
+      selector: '.banner',
+      pageName: '1',
+    });
+
+    this.topicObserver = observeTopicExposure({
+      vm: this,
+      selector: '.topic-item',
+      pageName: '1',
     });
   },
   onShow() {
@@ -76,9 +101,12 @@ export default {
   },
   onUnload() {
     this.reportStayDuration();
-    if (this.observer) {
-      this.observer.disconnect();
-    }
+    [this.gameObserver, this.bannerObserver, this.topicObserver]
+      .filter(Boolean)
+      .forEach(observer => observer.disconnect());
+    this.gameObserver = null;
+    this.bannerObserver = null;
+    this.topicObserver = null;
   },
   methods: {
     async fetchNetworkType() {
