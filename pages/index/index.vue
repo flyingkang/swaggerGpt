@@ -104,6 +104,67 @@ export default {
     this.topicObserver = null;
   },
   methods: {
+    async fetchNetworkType() {
+      if (typeof uni.getNetworkType !== 'function') {
+        return 'unknown';
+      }
+
+      return new Promise(resolve => {
+        uni.getNetworkType({
+          success: res => resolve(res.networkType),
+          fail: () => resolve('unknown'),
+        });
+      });
+    },
+    normalizeAnalyticsOptions(rawOptions = {}) {
+      const decode = value => {
+        if (typeof value !== 'string') {
+          return value;
+        }
+        try {
+          return decodeURIComponent(value);
+        } catch (err) {
+          return value;
+        }
+      };
+
+      const booleanFromString = value => {
+        if (typeof value === 'boolean') {
+          return value;
+        }
+        if (typeof value === 'string') {
+          return value.toLowerCase() === 'true';
+        }
+        return false;
+      };
+
+      const numberFromString = value => {
+        if (typeof value === 'number') {
+          return value;
+        }
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+
+      const pageUrl = decode(
+        rawOptions.pageUrl || rawOptions.url || 'https://browserdev.hoorooplay.com'
+      );
+
+      return {
+        userId: rawOptions.userId || rawOptions.user_id || '',
+        pageUrl,
+        platform: rawOptions.platform || 'app',
+        versionLanguage: rawOptions.versionLanguage || rawOptions.version_language || 'zh',
+        country: rawOptions.country || 'CN',
+        appVersion: rawOptions.appVersion || rawOptions.app_version || '1.0.0',
+        isMember: booleanFromString(rawOptions.isMember ?? rawOptions.is_member),
+        freePlayDuration: numberFromString(
+          rawOptions.freePlayDuration ?? rawOptions.free_play_duration
+        ),
+        entrySource: rawOptions.entrySource || rawOptions.entry_source || 'unknown',
+        watchState: booleanFromString(rawOptions.watchState ?? rawOptions.watch_state),
+      };
+    },
     reportStayDuration() {
       if (this.hasReportedStayDuration || !this.startTime) {
         return;

@@ -48,10 +48,7 @@ Analytics parameters are accepted via WebView query parameters. Both
 these lifecycle hooks runs with a full query payload. When the page is opened
 inside a native client, parameters can be supplied as standard query parameters
 in the WebView URL, for example:
-
-```
 https://browserdev.hoorooplay.com/index?userId=123&platform=ios&isMember=true
-```
 
 During `onLoad`, the component normalises the incoming values to ensure the
 analytics context is consistent even when everything is provided as strings. It
@@ -111,3 +108,4 @@ Stay duration is reported once per visit by guarding `reportStayDuration()`
 with the `hasReportedStayDuration` flag. The flag resets in both `onLoad` and
 `onShow`, ensuring each foreground session produces exactly one
 `page_view` event even when the page is reopened from the background.
+
