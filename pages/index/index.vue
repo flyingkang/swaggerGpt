@@ -1,6 +1,12 @@
 <template>
   <view class="page-index" @scroll="handleScroll">
-    <view class="banner" v-for="banner in banners" :key="banner.id" @tap="onBannerClick(banner.id)">
+    <view
+      class="banner"
+      v-for="banner in banners"
+      :key="banner.id"
+      :data-banner-id="banner.id"
+      @tap="onBannerClick(banner.id)"
+    >
       <image :src="banner.image" mode="aspectFill" />
     </view>
     <view
@@ -18,8 +24,14 @@
 
 <script>
 import tracker from '@/analytics/tracker';
+import { buildAnalyticsContext } from '@/analytics/context';
 import { EVENTS } from '@/analytics/config';
-import { observeGameExposure, resetExposureCache } from '@/analytics/exposure';
+import {
+  observeBannerExposure,
+  observeGameExposure,
+  observeTopicExposure,
+  resetExposureCache,
+} from '@/analytics/exposure';
 
 export default {
   data() {
@@ -27,43 +39,55 @@ export default {
       startTime: 0,
       banners: [],
       games: [],
-      observer: null,
+      gameObserver: null,
+      bannerObserver: null,
+      topicObserver: null,
       scrollDepth: 0,
+      hasReportedStayDuration: false,
     };
   },
-  onLoad(options) {
-    const systemInfo = uni.getSystemInfoSync();
-    const networkInfo = uni.getNetworkTypeSync();
+  async onLoad(options) {
+    let systemInfo = {};
+    try {
+      systemInfo = uni.getSystemInfoSync();
+    } catch (error) {
+      console.warn('getSystemInfoSync failed', error);
+    }
 
-    tracker.updateContext({
-      user_id: options.userId,
-      page_url: 'https://browserdev.hoorooplay.com',
-      platform: options.platform || 'app',
-      language: systemInfo.language,
-      version_language: options.versionLanguage || 'zh',
-      country: options.country || 'CN',
-      os: systemInfo.platform,
-      device_model: systemInfo.model,
-      network_type: networkInfo.networkType,
-      app_version: options.appVersion || '1.0.0',
-      is_member: options.isMember === 'true',
-      free_play_duration: Number(options.freePlayDuration || 0),
-      entry_source: options.entrySource || 'unknown',
-      watch_state: options.watchState === 'true',
+    const analyticsOptions = await buildAnalyticsContext(options, {
+      systemInfo,
+      existingContext: tracker.getContext(),
+      currentUrl: typeof window !== 'undefined' ? window.location.href : '',
     });
 
+    tracker.updateContext(analyticsOptions);
+
+    this.hasReportedStayDuration = false;
     this.startTime = Date.now();
   },
   onReady() {
-    this.observer = observeGameExposure({
+    this.gameObserver = observeGameExposure({
       vm: this,
       selector: '.game-item',
       pageName: '1',
       section: '游戏推荐',
     });
+
+    this.bannerObserver = observeBannerExposure({
+      vm: this,
+      selector: '.banner',
+      pageName: '1',
+    });
+
+    this.topicObserver = observeTopicExposure({
+      vm: this,
+      selector: '.topic-item',
+      pageName: '1',
+    });
   },
   onShow() {
     resetExposureCache();
+    this.hasReportedStayDuration = false;
     this.startTime = Date.now();
   },
   onHide() {
@@ -72,12 +96,19 @@ export default {
   },
   onUnload() {
     this.reportStayDuration();
-    if (this.observer) {
-      this.observer.disconnect();
-    }
+    [this.gameObserver, this.bannerObserver, this.topicObserver]
+      .filter(Boolean)
+      .forEach(observer => observer.disconnect());
+    this.gameObserver = null;
+    this.bannerObserver = null;
+    this.topicObserver = null;
   },
   methods: {
     reportStayDuration() {
+      if (this.hasReportedStayDuration || !this.startTime) {
+        return;
+      }
+      this.hasReportedStayDuration = true;
       const duration = Math.round((Date.now() - this.startTime) / 1000);
       tracker.track(EVENTS.PAGE_VIEW, {
         page_name: '1',

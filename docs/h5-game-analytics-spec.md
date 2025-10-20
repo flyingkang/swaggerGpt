@@ -9,7 +9,7 @@
 - 指标定义与可视化看板建议
 - 实施与运维要点
 
-> **备注**：所有统计数据默认排除游客用户（`is_member = false` 且未登录）。
+> **备注**：所有统计数据默认排除游客用户（`memberType = 0` 且未登录）。
 
 ---
 
@@ -21,22 +21,22 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `user_id` | string | 用户唯一标识。优先使用客户端提供的 ID，缺失时由 `ip + timezone` 生成 uuid。|
-| `session_id` | string | 30 分钟内无操作重置的会话 ID。|
-| `event_time` | number | 事件触发时间戳，毫秒级。|
-| `page_url` | string | 事件发生页面的完整 URL。|
+| `userId` | string | 用户唯一标识。优先使用客户端提供的 ID，缺失时由 `timezone` 派生 uuid。|
+| `sessionId` | string | 30 分钟内无操作重置的会话 ID。|
+| `eventTime` | number | 事件触发时间戳，毫秒级。|
+| `pageUrl` | string | 事件发生页面的完整 URL。|
 | `platform` | string | 访问来源（`sdk` / `app` / `web`）。|
 | `language` | string | 设备语言（OS）。|
-| `version_language` | string | 页面语言版本（`zh-CN` / `en-US` 等）。|
+| `versionLanguage` | string | 页面语言版本（`zh-CN` / `en-US` 等）。|
 | `country` | string | IP 解析的国家代码。|
 | `os` | string | 操作系统（`iOS` / `Android` / `HarmonyOS` / `Other`）。|
-| `device_model` | string | 设备型号。|
-| `network_type` | string | 网络类型（`wifi` / `4g` / `5g` / `other`）。|
-| `app_version` | string | H5 页版本号。|
-| `is_member` | boolean | 是否会员。|
-| `free_play_duration` | number | 当前免费游玩剩余时长（秒）。|
-| `entry_source` | string | 进入 H5 页入口来源。|
-| `watch_state` | boolean | 手表连接状态。|
+| `deviceModel` | string | 设备型号。|
+| `networkType` | string | 网络类型（`wifi` / `4g` / `5g` / `other`）。|
+| `appVersion` | string | H5 页版本号。|
+| `memberType` | integer | 是否会员（`1`=会员，`0`=非会员）。|
+| `freePlayDuration` | number | 当前免费游玩剩余时长（秒）。|
+| `entrySource` | string | 进入 H5 页入口来源。|
+| `watchState` | integer | 手表连接状态（`1`=已连接，`0`=未连接）。|
 
 ### 1.2 Session 生成逻辑
 
@@ -51,11 +51,13 @@
 | 事件 | 描述 | 额外参数 |
 | --- | --- | --- |
 | `page_view` | 离开页面时上报浏览时长 | `page_name`（"1"-"4"），`duration_time`（秒） |
+| `banner_impression` | Banner 曝光 | `page_banner_id`，`page_name` |
 | `banner_click` | Banner 点击 | `page_banner_id`，`page_name` |
 | `page_game_impression` | 游戏曝光 ≥1s | `page_name`，`game_id`，`position`，`section` |
 | `page_game_click` | 游戏点击 | `page_name`，`game_id`，`position`，`section` |
 | `page_scroll_depth` | 滑动深度 | `page_name`，`scroll_depth`（25/50/75/100） |
 | `page_more_click` | 点击更多 | `page_name`，`section` |
+| `topic_impression` | 专题曝光 | `page_topic_id`，`page_name` |
 
 #### 游戏专题详情页
 
@@ -114,7 +116,7 @@ src/
 ### 2.3 Tracker 接口示例
 
 ```javascript
-// src/analytics/tracker.js
+// src/analytics/tracker.js（简化版，详见源码）
 import { getStorage, setStorage } from './storage';
 import {
   BASE_ENDPOINT,
@@ -136,7 +138,9 @@ class Tracker {
   constructor(options = {}) {
     this.projectId = options.projectId || PROJECT_ID;
     this.endpoint = options.endpoint || BASE_ENDPOINT;
-    this.context = { ...DEFAULT_CONTEXT, ...(options.context || {}) };
+    this.contextKey = options.contextKey || 'tracker_persistent_context';
+    const cachedContext = getStorage(this.contextKey) || {};
+    this.context = { ...DEFAULT_CONTEXT, ...cachedContext, ...(options.context || {}) };
     this.queue = [];
     this.flushTimer = null;
     this.sessionKey = options.sessionKey || 'tracker_session_info';
@@ -154,25 +158,19 @@ class Tracker {
     this.persistSession(now);
   }
 
-  persistSession(lastActive) {
-    setStorage(this.sessionKey, {
-      sessionId: this.sessionId,
-      lastActive,
-    });
-  }
-
   updateContext(extra = {}) {
     this.context = { ...this.context, ...extra };
+    setStorage(this.contextKey, this.context);
   }
 
   track(eventName, payload = {}) {
     const event = {
-      event_name: eventName,
-      event_time: Date.now(),
-      session_id: this.sessionId,
-      project_id: this.projectId,
-      ...this.context,
-      ...payload,
+      eventName,
+      eventTime: Date.now(),
+      sessionId: this.sessionId,
+      projectId: this.projectId,
+      context: { ...this.context },
+      payload,
     };
     this.queue.push(event);
     this.persistSession(Date.now());
@@ -196,12 +194,51 @@ class Tracker {
     }
     const batch = this.queue.splice(0, this.queue.length);
     if (batch.length === 0) return;
+    batch.forEach(event => this.dispatchEvent(event));
+  }
+
+  dispatchEvent(event) {
+    const payload = this.buildRequestPayload(event);
     uni.request({
-      url: `${this.endpoint}/events/batch`,
+      url: this.endpoint,
       method: 'POST',
-      data: { project_id: this.projectId, events: batch },
-      fail: () => this.queue.unshift(...batch),
+      data: payload,
+      fail: () => {
+        this.queue.unshift(event);
+        this.scheduleFlush();
+      },
+      complete: () => {
+        this.flushTimer = null;
+      },
     });
+  }
+
+  buildRequestPayload(event) {
+    const { eventName, eventTime, sessionId, context = {}, payload = {} } = event;
+    const booleanToInt = value => (value ? 1 : 0);
+    return {
+      userId: context.userId,
+      appVersion: context.appVersion,
+      country: context.country,
+      deviceModel: context.deviceModel,
+      entrySource: context.entrySource,
+      eventName,
+      eventPara: JSON.stringify(payload || {}),
+      eventTime,
+      freePlayDuration: Number(context.freePlayDuration || 0),
+      language: context.language,
+      memberType:
+        typeof context.memberType !== 'undefined'
+          ? Number(context.memberType)
+          : booleanToInt(context.isMember),
+      networkType: context.networkType,
+      os: context.os,
+      pageUrl: context.pageUrl,
+      platform: context.platform,
+      sessionId,
+      versionLanguage: context.versionLanguage,
+      watchState: booleanToInt(context.watchState),
+    };
   }
 }
 
@@ -212,11 +249,12 @@ export default new Tracker();
 
 ```javascript
 // src/analytics/config.js
-export const BASE_ENDPOINT = 'https://api.mock-analytics.com';
+export const BASE_ENDPOINT = 'https://api.mock-analytics.com/smhl/outer/browser/web/track';
 
 export const EVENTS = {
   PAGE_VIEW: 'page_view',
   BANNER_CLICK: 'banner_click',
+  BANNER_IMPRESSION: 'banner_impression',
   PAGE_GAME_IMPRESSION: 'page_game_impression',
   PAGE_GAME_CLICK: 'page_game_click',
   PAGE_SCROLL_DEPTH: 'page_scroll_depth',
@@ -226,12 +264,29 @@ export const EVENTS = {
   CATEGORY_PAGE_VIEW: 'category_page_view',
   CATEGORY_CLICK: 'category_click',
   TOPIC_GAME_IMPRESSION: 'topic_game_impression',
+  TOPIC_IMPRESSION: 'topic_impression',
   CATEGORY_GAME_CLICK: 'category_game_click',
   GAME_SESSION_END: 'game_session_end',
   PAYMENT_POPUP_VIEW: 'payment_popup_view',
   PAYMENT_POPUP_CLICK: 'payment_popup_click',
   PAYMENT_SUCCESS: 'payment_success',
 };
+
+export const DEFAULT_CONTEXT = Object.freeze({
+  platform: 'web',
+  language: 'zh-CN',
+  versionLanguage: 'zh',
+  country: 'CN',
+  os: 'other',
+  deviceModel: '',
+  networkType: 'wifi',
+  appVersion: '1.0.0',
+  isMember: false,
+  freePlayDuration: 0,
+  entrySource: 'unknown',
+  watchState: false,
+  pageUrl: '',
+});
 ```
 
 ```javascript
@@ -256,54 +311,56 @@ export function setStorage(key, value) {
 ### 2.5 页面集成示例
 
 ```javascript
-// pages/index/index.vue
+// pages/index/index.vue（片段）
 import tracker from '@/analytics/tracker';
+import { buildAnalyticsContext } from '@/analytics/context';
 import { EVENTS } from '@/analytics/config';
-import { observeGameExposure, resetExposureCache } from '@/analytics/exposure';
+import {
+  observeBannerExposure,
+  observeGameExposure,
+  observeTopicExposure,
+  resetExposureCache,
+} from '@/analytics/exposure';
 
 export default {
   data() {
     return {
       startTime: 0,
-      banners: [],
-      games: [],
-      observer: null,
+      hasReportedStayDuration: false,
       scrollDepth: 0,
     };
   },
-  onLoad(options) {
-    const systemInfo = uni.getSystemInfoSync();
-    const networkInfo = uni.getNetworkTypeSync();
+  async onLoad(options) {
+    let systemInfo = {};
+    try {
+      systemInfo = uni.getSystemInfoSync();
+    } catch (error) {
+      console.warn('getSystemInfoSync failed', error);
+    }
 
-    tracker.updateContext({
-      user_id: options.userId,
-      page_url: 'https://browserdev.hoorooplay.com',
-      platform: options.platform || 'app',
-      language: systemInfo.language,
-      version_language: options.versionLanguage || 'zh',
-      country: options.country || 'CN',
-      os: systemInfo.platform,
-      device_model: systemInfo.model,
-      network_type: networkInfo.networkType,
-      app_version: options.appVersion || '1.0.0',
-      is_member: options.isMember === 'true',
-      free_play_duration: Number(options.freePlayDuration || 0),
-      entry_source: options.entrySource || 'unknown',
-      watch_state: options.watchState === 'true',
+    const analyticsOptions = await buildAnalyticsContext(options, {
+      systemInfo,
+      existingContext: tracker.getContext(),
+      currentUrl: typeof window !== 'undefined' ? window.location.href : '',
     });
 
+    tracker.updateContext(analyticsOptions);
+    this.hasReportedStayDuration = false;
     this.startTime = Date.now();
   },
   onReady() {
-    this.observer = observeGameExposure({
+    this.gameObserver = observeGameExposure({
       vm: this,
       selector: '.game-item',
       pageName: '1',
       section: '游戏推荐',
     });
+    this.bannerObserver = observeBannerExposure({ vm: this, selector: '.banner', pageName: '1' });
+    this.topicObserver = observeTopicExposure({ vm: this, selector: '.topic-item', pageName: '1' });
   },
   onShow() {
     resetExposureCache();
+    this.hasReportedStayDuration = false;
     this.startTime = Date.now();
   },
   onHide() {
@@ -312,51 +369,13 @@ export default {
   },
   onUnload() {
     this.reportStayDuration();
-    if (this.observer) {
-      this.observer.disconnect();
-    }
-  },
-  methods: {
-    reportStayDuration() {
-      const duration = Math.round((Date.now() - this.startTime) / 1000);
-      tracker.track(EVENTS.PAGE_VIEW, {
-        page_name: '1',
-        duration_time: duration,
-      });
-    },
-    onBannerClick(bannerId) {
-      tracker.track(EVENTS.BANNER_CLICK, {
-        page_name: '1',
-        page_banner_id: bannerId,
-      });
-    },
-    onGameClick(game, position, section) {
-      tracker.track(EVENTS.PAGE_GAME_CLICK, {
-        page_name: '1',
-        game_id: game.id,
-        position: `游戏推荐第${position}位`,
-        section,
-      });
-    },
-    handleScroll(event) {
-      const scrollHeight = event.detail.scrollHeight || 1;
-      const scrollTop = event.detail.scrollTop || 0;
-      const viewHeight = event.detail.clientHeight || 1;
-      const depth = Math.min(1, (scrollTop + viewHeight) / scrollHeight);
-      const percent = Math.round(depth * 100);
-      const milestones = [25, 50, 75, 100];
-      const reached = milestones.find(m => percent >= m && m > this.scrollDepth);
-      if (reached) {
-        this.scrollDepth = reached;
-        tracker.track(EVENTS.PAGE_SCROLL_DEPTH, {
-          page_name: '1',
-          scroll_depth: `${reached}%`,
-        });
-      }
-    },
+    [this.gameObserver, this.bannerObserver, this.topicObserver]
+      .filter(Boolean)
+      .forEach(observer => observer.disconnect());
   },
 };
 ```
+
 
 ### 2.6 曝光监听工具示例
 
@@ -402,36 +421,30 @@ export function observeGameExposure({ vm, selector, pageName, section }) {
 
 ### 3.1 HTTP 请求
 
-- **URL**：`POST https://api.mock-analytics.com/events/batch`
+- **URL**：`POST https://api.mock-analytics.com/smhl/outer/browser/web/track`
 - **Header**：`Content-Type: application/json`
 - **Body**：
 
 ```json
 {
-  "project_id": "h5-somatosensory",
-  "events": [
-    {
-      "event_name": "page_view",
-      "event_time": 1714300000000,
-      "session_id": "b8e...",
-      "user_id": "u123",
-      "page_name": "1",
-      "duration_time": 45,
-      "page_url": "https://browserdev.hoorooplay.com/",
-      "platform": "app",
-      "language": "zh-CN",
-      "version_language": "zh",
-      "country": "CN",
-      "os": "iOS",
-      "device_model": "iPhone15,3",
-      "network_type": "wifi",
-      "app_version": "1.2.0",
-      "is_member": true,
-      "free_play_duration": 0,
-      "entry_source": "push",
-      "watch_state": true
-    }
-  ]
+  "userId": "u123",
+  "sessionId": "b8e...",
+  "eventName": "page_view",
+  "eventTime": 1714300000000,
+  "eventPara": "{\"page_name\":\"1\",\"duration_time\":45}",
+  "pageUrl": "https://browserdev.hoorooplay.com/",
+  "platform": "app",
+  "language": "zh-CN",
+  "versionLanguage": "zh",
+  "country": "CN",
+  "os": "iOS",
+  "deviceModel": "iPhone15,3",
+  "networkType": "Wi-Fi",
+  "appVersion": "1.2.0",
+  "memberType": 1,
+  "freePlayDuration": 0,
+  "entrySource": "push",
+  "watchState": 0
 }
 ```
 
@@ -448,7 +461,7 @@ export function observeGameExposure({ vm, selector, pageName, section }) {
 
 - 使用 HTTPS + 鉴权头（如 `X-Api-Key`）。
 - 服务端对事件字段做 schema 校验，异常记录并返回错误码。
-- 过滤 `is_member = false` 的数据后再入库。
+- 过滤 `memberType = 0` 的数据后再入库。
 
 ---
 
@@ -491,7 +504,7 @@ export function observeGameExposure({ vm, selector, pageName, section }) {
 | `network_type` | string | 网络类型。|
 | `entry_source` | string | 入口来源。|
 | `watch_state` | boolean | 手表连接状态。|
-| `is_member` | boolean | 是否会员。|
+| `member_type` | tinyint | 是否会员（1=会员，0=游客）。|
 
 ### 4.3 维度表
 
