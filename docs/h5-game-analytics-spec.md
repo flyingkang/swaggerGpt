@@ -51,11 +51,13 @@
 | 事件 | 描述 | 额外参数 |
 | --- | --- | --- |
 | `page_view` | 离开页面时上报浏览时长 | `page_name`（"1"-"4"），`duration_time`（秒） |
+| `banner_impression` | Banner 曝光 | `page_banner_id`，`page_name` |
 | `banner_click` | Banner 点击 | `page_banner_id`，`page_name` |
 | `page_game_impression` | 游戏曝光 ≥1s | `page_name`，`game_id`，`position`，`section` |
 | `page_game_click` | 游戏点击 | `page_name`，`game_id`，`position`，`section` |
 | `page_scroll_depth` | 滑动深度 | `page_name`，`scroll_depth`（25/50/75/100） |
 | `page_more_click` | 点击更多 | `page_name`，`section` |
+| `topic_impression` | 专题曝光 | `page_topic_id`，`page_name` |
 
 #### 游戏专题详情页
 
@@ -217,6 +219,7 @@ export const BASE_ENDPOINT = 'https://api.mock-analytics.com';
 export const EVENTS = {
   PAGE_VIEW: 'page_view',
   BANNER_CLICK: 'banner_click',
+  BANNER_IMPRESSION: 'banner_impression',
   PAGE_GAME_IMPRESSION: 'page_game_impression',
   PAGE_GAME_CLICK: 'page_game_click',
   PAGE_SCROLL_DEPTH: 'page_scroll_depth',
@@ -226,6 +229,7 @@ export const EVENTS = {
   CATEGORY_PAGE_VIEW: 'category_page_view',
   CATEGORY_CLICK: 'category_click',
   TOPIC_GAME_IMPRESSION: 'topic_game_impression',
+  TOPIC_IMPRESSION: 'topic_impression',
   CATEGORY_GAME_CLICK: 'category_game_click',
   GAME_SESSION_END: 'game_session_end',
   PAYMENT_POPUP_VIEW: 'payment_popup_view',
