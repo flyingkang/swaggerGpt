@@ -1,4 +1,4 @@
-export const BASE_ENDPOINT = 'https://api.mock-analytics.com';
+export const BASE_ENDPOINT = 'https://api.mock-analytics.com/smhl/outer/browser/web/track';
 export const PROJECT_ID = 'h5-somatosensory';
 
 export const EVENTS = Object.freeze({
@@ -23,18 +23,19 @@ export const EVENTS = Object.freeze({
 });
 
 export const DEFAULT_CONTEXT = Object.freeze({
-  platform: 'web',
+  platform: 'app',
   language: 'zh-CN',
-  version_language: 'zh',
+  versionLanguage: 'zh',
   country: 'CN',
   os: 'other',
-  device_model: '',
-  network_type: 'wifi',
-  app_version: '1.0.0',
-  is_member: false,
-  free_play_duration: 0,
-  entry_source: 'unknown',
-  watch_state: false,
+  deviceModel: '',
+  networkType: '',
+  appVersion: '1.0.0',
+  isMember: false,
+  freePlayDuration: 0,
+  entrySource: 'unknown',
+  watchState: false,
+  pageUrl: '',
 });
 
 export const FLUSH_POLICY = Object.freeze({

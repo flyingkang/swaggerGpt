@@ -13,11 +13,11 @@
    - 超过 `SESSION_TIMEOUT`（默认 30 分钟）则重新生成 `session_id`；
    - 每次调用 `track` 会刷新活跃时间，确保同一会话内事件打通。
 2. **公共上下文**：
-   - 通过 `updateContext` 维护公共字段（如 `user_id`、`page_url`）；
-   - `track` 会将公共字段与事件私有字段合并后入队，保证所有事件携带一致的分析维度。
-3. **事件队列与批量上报**：
+   - 通过 `updateContext` 维护公共字段（如 `userId`、`pageUrl`）；
+   - `track` 将公共字段与事件参数封装后入队，确保每条事件都带上同一份上下文。
+3. **事件队列与可靠上报**：
    - 事件被 push 到内存队列，达到 `FLUSH_POLICY.MAX_BATCH_SIZE` 或超过 `MAX_WAITING_MS` 自动触发 `flush`；
-   - 统一走 `uni.request` 发送到 `/events/batch` 接口，失败会将事件回滚到队列等待下次发送。
+   - 统一走 `uni.request` 发送到 `/smhl/outer/browser/web/track` 接口，失败会将事件回滚到队列并重新排定发送时间。
 
 ### 1.2 Exposure 曝光监听
 
@@ -39,10 +39,12 @@
    import { EVENTS } from '@/analytics/config';
 
    tracker.updateContext({
-     user_id: options.userId,
-     page_url: 'https://browserdev.hoorooplay.com',
+     userId: options.userId,
+     pageUrl: 'https://browserdev.hoorooplay.com',
      platform: options.platform || 'app',
-     // ...其余公共字段
+     networkType: options.networkType,
+     entrySource: options.entrySource,
+     memberType: options.memberType,
    });
    ```
 2. **记录页面停留时长**：

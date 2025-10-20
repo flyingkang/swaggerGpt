@@ -19,7 +19,13 @@ export class Tracker {
   constructor(options = {}) {
     this.projectId = options.projectId || PROJECT_ID;
     this.endpoint = options.endpoint || BASE_ENDPOINT;
-    this.context = { ...DEFAULT_CONTEXT, ...(options.context || {}) };
+    this.contextKey = options.contextKey || 'tracker_persistent_context';
+    const cachedContext = getStorage(this.contextKey) || {};
+    this.context = {
+      ...DEFAULT_CONTEXT,
+      ...cachedContext,
+      ...(options.context || {}),
+    };
     this.queue = [];
     this.flushTimer = null;
     this.sessionKey = options.sessionKey || 'tracker_session_info';
@@ -50,22 +56,21 @@ export class Tracker {
 
   updateContext(extra = {}) {
     this.context = { ...this.context, ...extra };
+    this.persistContext();
   }
 
-  withContext(payload = {}) {
-    return {
-      ...this.context,
-      ...payload,
-    };
+  getContext() {
+    return { ...this.context };
   }
 
   track(eventName, payload = {}) {
     const event = {
-      event_name: eventName,
-      event_time: Date.now(),
-      session_id: this.sessionId,
-      project_id: this.projectId,
-      ...this.withContext(payload),
+      eventName,
+      eventTime: Date.now(),
+      sessionId: this.sessionId,
+      projectId: this.projectId,
+      context: this.getContext(),
+      payload,
     };
     this.queue.push(event);
     this.touchSession();
@@ -94,16 +99,44 @@ export class Tracker {
     const batch = this.queue.splice(0, this.queue.length);
     if (batch.length === 0) return;
 
+    batch.forEach(event => {
+      this.dispatchEvent(event);
+    });
+  }
+
+  resetSession() {
+    this.sessionId = generateUUID();
+    this.persistSession(Date.now());
+  }
+
+  persistContext() {
+    setStorage(this.contextKey, this.context);
+  }
+
+  ensureUserId() {
+    if (!this.context.userId) {
+      const hasIntl = typeof Intl !== 'undefined' && typeof Intl.DateTimeFormat === 'function';
+      const timezone = hasIntl
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+        : 'UTC';
+      this.context.userId = `${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}-${timezone}`;
+      this.persistContext();
+    }
+    return this.context.userId;
+  }
+
+  dispatchEvent(event) {
+    const payload = this.buildRequestPayload(event);
     uni.request({
-      url: `${this.endpoint}/events/batch`,
+      url: this.endpoint,
       method: 'POST',
-      data: {
-        project_id: this.projectId,
-        events: batch,
-      },
+      data: payload,
       success: () => {},
       fail: () => {
-        this.queue.unshift(...batch);
+        this.queue.unshift(event);
+        this.scheduleFlush();
       },
       complete: () => {
         this.flushTimer = null;
@@ -111,9 +144,80 @@ export class Tracker {
     });
   }
 
-  resetSession() {
-    this.sessionId = generateUUID();
-    this.persistSession(Date.now());
+  buildRequestPayload(event) {
+    const {
+      eventName,
+      eventTime,
+      sessionId,
+      context = {},
+      payload = {},
+    } = event;
+
+    const {
+      userId,
+      appVersion,
+      country,
+      deviceModel,
+      entrySource,
+      freePlayDuration,
+      language,
+      networkType,
+      os,
+      pageUrl,
+      platform,
+      versionLanguage,
+      watchState,
+      memberType,
+      isMember,
+    } = context;
+
+    const resolveBoolean = value => {
+      if (typeof value === 'boolean') {
+        return value ? 1 : 0;
+      }
+      if (typeof value === 'number') {
+        return value ? 1 : 0;
+      }
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['1', 'true', 'yes', 'y'].includes(normalized)) {
+          return 1;
+        }
+      }
+      return 0;
+    };
+
+    const toInteger = value => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    return {
+      userId: userId || this.ensureUserId(),
+      appVersion: appVersion,
+      country,
+      deviceModel,
+      entrySource,
+      eventName,
+      eventPara: JSON.stringify(payload || {}),
+      eventTime,
+      freePlayDuration: toInteger(freePlayDuration),
+      language,
+      memberType:
+        typeof memberType !== 'undefined'
+          ? toInteger(memberType)
+          : resolveBoolean(isMember),
+      networkType,
+      os,
+      pageUrl,
+      platform,
+      sessionId,
+      versionLanguage,
+      watchState:
+        typeof watchState === 'number'
+          ? toInteger(watchState)
+          : resolveBoolean(watchState),
+    };
   }
 }
 
