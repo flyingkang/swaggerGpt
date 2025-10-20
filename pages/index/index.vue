@@ -29,29 +29,32 @@ export default {
       games: [],
       observer: null,
       scrollDepth: 0,
+      hasReportedStayDuration: false,
     };
   },
-  onLoad(options) {
+  async onLoad(options) {
     const systemInfo = uni.getSystemInfoSync();
-    const networkInfo = uni.getNetworkTypeSync();
+    const analyticsOptions = this.normalizeAnalyticsOptions(options);
+    const networkType = await this.fetchNetworkType();
 
     tracker.updateContext({
-      user_id: options.userId,
-      page_url: 'https://browserdev.hoorooplay.com',
-      platform: options.platform || 'app',
+      user_id: analyticsOptions.userId,
+      page_url: analyticsOptions.pageUrl,
+      platform: analyticsOptions.platform,
       language: systemInfo.language,
-      version_language: options.versionLanguage || 'zh',
-      country: options.country || 'CN',
+      version_language: analyticsOptions.versionLanguage,
+      country: analyticsOptions.country,
       os: systemInfo.platform,
       device_model: systemInfo.model,
-      network_type: networkInfo.networkType,
-      app_version: options.appVersion || '1.0.0',
-      is_member: options.isMember === 'true',
-      free_play_duration: Number(options.freePlayDuration || 0),
-      entry_source: options.entrySource || 'unknown',
-      watch_state: options.watchState === 'true',
+      network_type: networkType,
+      app_version: analyticsOptions.appVersion,
+      is_member: analyticsOptions.isMember,
+      free_play_duration: analyticsOptions.freePlayDuration,
+      entry_source: analyticsOptions.entrySource,
+      watch_state: analyticsOptions.watchState,
     });
 
+    this.hasReportedStayDuration = false;
     this.startTime = Date.now();
   },
   onReady() {
@@ -64,6 +67,7 @@ export default {
   },
   onShow() {
     resetExposureCache();
+    this.hasReportedStayDuration = false;
     this.startTime = Date.now();
   },
   onHide() {
@@ -77,7 +81,72 @@ export default {
     }
   },
   methods: {
+    async fetchNetworkType() {
+      if (typeof uni.getNetworkType !== 'function') {
+        return 'unknown';
+      }
+
+      return new Promise(resolve => {
+        uni.getNetworkType({
+          success: res => resolve(res.networkType),
+          fail: () => resolve('unknown'),
+        });
+      });
+    },
+    normalizeAnalyticsOptions(rawOptions = {}) {
+      const decode = value => {
+        if (typeof value !== 'string') {
+          return value;
+        }
+        try {
+          return decodeURIComponent(value);
+        } catch (err) {
+          return value;
+        }
+      };
+
+      const booleanFromString = value => {
+        if (typeof value === 'boolean') {
+          return value;
+        }
+        if (typeof value === 'string') {
+          return value.toLowerCase() === 'true';
+        }
+        return false;
+      };
+
+      const numberFromString = value => {
+        if (typeof value === 'number') {
+          return value;
+        }
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+
+      const pageUrl = decode(
+        rawOptions.pageUrl || rawOptions.url || 'https://browserdev.hoorooplay.com'
+      );
+
+      return {
+        userId: rawOptions.userId || rawOptions.user_id || '',
+        pageUrl,
+        platform: rawOptions.platform || 'app',
+        versionLanguage: rawOptions.versionLanguage || rawOptions.version_language || 'zh',
+        country: rawOptions.country || 'CN',
+        appVersion: rawOptions.appVersion || rawOptions.app_version || '1.0.0',
+        isMember: booleanFromString(rawOptions.isMember ?? rawOptions.is_member),
+        freePlayDuration: numberFromString(
+          rawOptions.freePlayDuration ?? rawOptions.free_play_duration
+        ),
+        entrySource: rawOptions.entrySource || rawOptions.entry_source || 'unknown',
+        watchState: booleanFromString(rawOptions.watchState ?? rawOptions.watch_state),
+      };
+    },
     reportStayDuration() {
+      if (this.hasReportedStayDuration || !this.startTime) {
+        return;
+      }
+      this.hasReportedStayDuration = true;
       const duration = Math.round((Date.now() - this.startTime) / 1000);
       tracker.track(EVENTS.PAGE_VIEW, {
         page_name: '1',
